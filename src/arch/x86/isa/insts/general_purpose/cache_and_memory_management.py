@@ -91,6 +91,18 @@ def macroop CLWB_P
     clwb seg, riprel, disp, dataSize=1
 };
 
+def macroop PUM_M
+{
+    pumopt seg, sib, disp, dataSize=1
+};
+
+def macroop PUM_P
+{
+    rdip t7
+    pumopt seg, riprel, disp, dataSize=1
+};
+
+
 """
 
 # let {{

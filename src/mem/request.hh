@@ -259,6 +259,8 @@ class Request : public Extensible<Request>
         /** TLBI_EXT_SYNC_COMP seems to be the largest value
             of FlagsType, so HAS_NO_ADDR's value is that << 1 */
         HAS_NO_ADDR                = 0x0001000000000000,
+        /** The request is a PUM request */
+        PUM                        = 0x0010000000000000,
     };
     static const FlagsType STORE_NO_DATA = CACHE_BLOCK_ZERO |
         CLEAN | INVALIDATE;
@@ -1030,6 +1032,7 @@ class Request : public Extensible<Request>
     bool isLLSC() const { return _flags.isSet(LLSC); }
     bool isPriv() const { return _flags.isSet(PRIVILEGED); }
     bool isLockedRMW() const { return _flags.isSet(LOCKED_RMW); }
+    bool isPUM() const {return _flags.isSet(PUM);}
     bool isSwap() const { return _flags.isSet(MEM_SWAP | MEM_SWAP_COND); }
     bool isCondSwap() const { return _flags.isSet(MEM_SWAP_COND); }
     bool

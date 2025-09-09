@@ -476,7 +476,10 @@ AbstractMemory::access(PacketPtr pkt)
                 stats.bytesWritten[pkt->req->requestorId()] += pkt->getSize();
             }
         }
-    } else {
+    } else if (pkt->isPUM()) {
+        pkt->setPUM(host_addr);
+    }
+    else {
         panic("Unexpected packet %s", pkt->print());
     }
 

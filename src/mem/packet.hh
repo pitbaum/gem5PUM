@@ -149,6 +149,7 @@ class MemCmd
         HTMAbort,
         // Tlb shootdown
         TlbiExtSync,
+        PUM,
         NUM_MEM_CMDS
     };
 
@@ -177,6 +178,7 @@ class MemCmd
         IsPrint,        //!< Print state matching address (for debugging)
         IsFlush,        //!< Flush the address from caches
         FromCache,      //!< Request originated from a caching agent
+        IsPUM,
         NUM_COMMAND_ATTRIBUTES
     };
 
@@ -250,6 +252,7 @@ class MemCmd
     bool hasData() const        { return testCmdAttrib(HasData); }
     bool isLLSC() const         { return testCmdAttrib(IsLlsc); }
     bool isLockedRMW() const    { return testCmdAttrib(IsLockedRMW); }
+    bool isPUM() const          { return testCmdAttrib(IsPUM); }
     bool isSWPrefetch() const   { return testCmdAttrib(IsSWPrefetch); }
     bool isHWPrefetch() const   { return testCmdAttrib(IsHWPrefetch); }
     bool isPrefetch() const     { return testCmdAttrib(IsSWPrefetch) ||
@@ -263,7 +266,7 @@ class MemCmd
     {
         return (cmd == ReadReq || cmd == WriteReq ||
                 cmd == WriteLineReq || cmd == ReadExReq ||
-                cmd == ReadCleanReq || cmd == ReadSharedReq);
+                cmd == ReadCleanReq || cmd == ReadSharedReq || cmd == PUM);
     }
 
     Command
@@ -619,6 +622,7 @@ class Packet : public Printable, public Extensible<Packet>
     }
     bool isLLSC() const              { return cmd.isLLSC(); }
     bool isLockedRMW() const         { return cmd.isLockedRMW(); }
+    bool isPUM() const               { return cmd.isPUM(); }
     bool isError() const             { return cmd.isError(); }
     bool isPrint() const             { return cmd.isPrint(); }
     bool isFlush() const             { return cmd.isFlush(); }
@@ -1026,8 +1030,12 @@ class Packet : public Printable, public Extensible<Packet>
             return MemCmd::CleanSharedReq;
         } else if (req->isLockedRMW()) {
             return MemCmd::LockedRMWWriteReq;
-        } else
+        } else if (req->isPUM()) {
+            std::cout << "PUM write request" << std::endl;
+            return MemCmd::PUM;
+        } else {
             return MemCmd::WriteReq;
+        }
     }
 
     /**
@@ -1334,6 +1342,106 @@ class Packet : public Printable, public Extensible<Packet>
                 // Disabled bytes stay untouched
             }
         }
+    }
+
+    /*
+    * Copy the src rows content into the dest row
+    * Col size relates to how many cells are in one row, since uint_8 we compute it bytes a time
+    * Need to copy every single src, i guess it would be more effective to use memcpy on the entire range of a row rather than with a loop?
+    */
+    void
+    rowclonePUM(uint8_t* dest_row_start_addr, uint8_t* src_row_start_addr, int col_size) const
+    {
+        std::memcpy(dest_row_start_addr, src_row_start_addr, col_size/8);
+    }
+
+    uint8_t
+    majorityResult(uint8_t maj1, uint8_t maj2, uint8_t maj3) const{
+        // Branchless validation: mask off all but the lowest bit
+        if ((maj1 | maj2 | maj3) & ~1) {
+            throw std::invalid_argument("Inputs must be 0 or 1");
+        }
+
+        // Branchless majority: sum is 0–3, shift right to check >=2
+        return (uint8_t)((maj1 + maj2 + maj3) >> 1);
+    }
+
+    /*
+    * Take the Maj of the 3 addresses for their entire respective row and overwrite all 3 rows with the results
+    * Col size relates to how many cells are in one row, (i.e. how far away the last address in the addr range we need to operate)
+    */
+    void
+    majority3PUM(uint8_t* maj_addr1, uint8_t* maj_addr2, uint8_t* maj_addr3, int col_size) const
+    {
+        // Updating the 3 involved entire coloumns with the majority resutls, since uint_8 we compute it bytes a time
+        for(int i = 0; i < col_size/8; i++) {
+            // Get the result of the computation
+            uint8_t majority_result = majorityResult(*(maj_addr1+i), *(maj_addr2+i), *(maj_addr3+i));
+            // Assign the results to the cells
+            *(maj_addr1+i) = majority_result;
+            *(maj_addr2+i) = majority_result;
+            *(maj_addr3+i) = majority_result;
+        }
+    }
+
+    /*
+    * Find what PUM operation is expected based on the src row
+    * calculate the hosts invovled addresses in the operation and call the function to execute the operation
+    *
+    */
+    void
+    subarrayDestPUM(uint8_t* src_host_addr) const
+    {
+        int col_size = 1024;
+        int row_size = 512;
+        // Find the subarray start you are in with the addr
+        int subarray_size = row_size * col_size; // 512 rows x 1024 cols times the data size 1 byte
+        //uint64_t subarray_size = 1024x1024; // Assuming 1024x1024 rowsxcols
+        //uint64_t subarray_size = 512x512;// Assuming 512x512 rowsxcols
+
+        // Divide by the size of a subarray to see what subarray it is and get from it the base address pointer is
+        uint8_t* subarray_start_addr = reinterpret_cast<uint8_t*>((((reinterpret_cast<uintptr_t>(src_host_addr)/subarray_size))*subarray_size));
+        // Indentify from the src host address the start of the row the src host addr is in
+        // The start of the row should be divisible by col_size, thus by flooring to the colsize we can find it
+        uint8_t* host_src_row_start_addr = reinterpret_cast<uint8_t*>(((reinterpret_cast<uintptr_t>(src_host_addr)/col_size)*col_size));
+        // Check what function our current host addr serves in the subarray, according to the allocation described below
+        uintptr_t operated_row_addr_remainder = (reinterpret_cast<uintptr_t>(host_src_row_start_addr) - reinterpret_cast<uintptr_t>(subarray_start_addr)) / col_size;
+
+        /**
+         * Assuming 0000000000000...0 row  at 0
+         * Assuming 1111111111111...1 row at  1
+         * Assuming Comparison row at row 2 (Input 1)
+         * Assuming MAJ row at row 3,4,5 (At least)
+         * Assuming all other rows in the subarray contain data
+         *
+         * Thus if we call PuM on 0,1 we rc to maj1, call PuM on 3,4,5 we maj the 3 maj addresses, call on 2 rc to maj2, call on any other rc to maj3
+         */
+
+        // Identify the MAJ rows addresses by adding their respective row offset to the base
+        uint8_t* maj_addr_1 = subarray_start_addr + 3;
+        uint8_t* maj_addr_2 = subarray_start_addr + 4;
+        uint8_t* maj_addr_3 = subarray_start_addr + 5;
+
+        // Identify the row clone rows addresses
+        if (operated_row_addr_remainder == 0 || operated_row_addr_remainder == 1)
+            // return address of the first MAJ row that gets the constant inputs copied into
+            rowclonePUM(maj_addr_1, host_src_row_start_addr, col_size);
+        else if (operated_row_addr_remainder == 2)
+            // return address of the second MAJ row used for comparison row input copying
+            rowclonePUM(maj_addr_2, host_src_row_start_addr, col_size);
+        else if (operated_row_addr_remainder == 3 || operated_row_addr_remainder == 4 || operated_row_addr_remainder == 5)
+            // return address of the first MAJ and than the MAJ function can just add +1 and +2 to get the other 2 addresses
+            majority3PUM(maj_addr_1, maj_addr_2, maj_addr_3, col_size);
+        else
+            // return address of the third MAJ row used copying all other data as input
+            rowclonePUM(maj_addr_3, host_src_row_start_addr, col_size);
+    }
+
+    /*
+    * Executes and handles a PUM request
+    */
+    void setPUM(uint8_t* hostaddr) const {
+        subarrayDestPUM(hostaddr);
     }
 
     /**

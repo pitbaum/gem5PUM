@@ -363,7 +363,7 @@ CoherentXBar::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id)
         }
     }
 
-    if (sink_packet)
+    if (sink_packet) //Seems like if we dont want to give a response this is where to trigger
         // queue the packet for deletion
         pendingDelete.reset(pkt);
 
@@ -1101,7 +1101,7 @@ CoherentXBar::sinkPacket(const PacketPtr pkt) const
     //    flag) is providing writable and thus had a Modified block,
     //    and no further action is needed
     return (pointOfCoherency && pkt->cacheResponding()) ||
-        (pointOfCoherency && !(pkt->isRead() || pkt->isWrite()) &&
+        (pointOfCoherency && !(pkt->isRead() || pkt->isWrite() || pkt->isPUM()) &&
          !pkt->needsResponse()) ||
         (pkt->isCleanEviction() && pkt->isBlockCached()) ||
         (pkt->cacheResponding() &&
@@ -1119,7 +1119,7 @@ CoherentXBar::forwardPacket(const PacketPtr pkt)
     if (pkt->isClean()) {
         return !isDestination(pkt);
     }
-    return pkt->isRead() || pkt->isWrite() || !pointOfCoherency;
+    return pkt->isRead() || pkt->isWrite() || pkt->isPUM() || !pointOfCoherency;
 }
 
 

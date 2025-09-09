@@ -41,9 +41,9 @@ from common import (
 import m5.objects
 
 
-def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit):
+def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit, options):
     """
-    Helper function for creating a single memory controller from the given
+    Helper function for creating a single memoy controller from the given
     options.  This function is invoked multiple times in config_mem function
     to create an array of controllers.
     """
@@ -67,10 +67,20 @@ def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit):
     interface = intf()
 
     # Only do this for DRAMs
-    if issubclass(intf, m5.objects.DRAMInterface):
+    if issubclass(intf, m5.objects.Ramulator2):
+        if not options.ramulator_config:
+            print("--mem-type=Ramulator2 requires --ramulator-config option")
+            exit(1)
+        interface.config_path = options.ramulator_config
+        interface.output_dir = options.output_dir
+        print(
+            "Ramulator2 system configuration file =", options.ramulator_config
+        )
+    elif issubclass(intf, m5.objects.DRAMInterface):
         # If the channel bits are appearing after the column
         # bits, we need to add the appropriate number of bits
         # for the row buffer size
+        print("DRAMInterface is called")
         if interface.addr_mapping.value == "RoRaBaChCo":
             # This computation only really needs to happen
             # once, but as we rely on having an instance we
@@ -151,6 +161,8 @@ def config_mem(options, system):
         subsystem = system.hmc_dev
         xbar = system.hmc_dev.xbar
     else:
+        if opt_mem_type == "Ramulator2":
+            print("Memory TYPE:: ", opt_mem_type)
         subsystem = system
         xbar = system.membus
 
@@ -217,7 +229,13 @@ def config_mem(options, system):
             if opt_mem_type and (not opt_nvm_type or range_iter % 2 != 0):
                 # Create the DRAM interface
                 dram_intf = create_mem_intf(
-                    intf, r, i, intlv_bits, intlv_size, opt_xor_low_bit
+                    intf,
+                    r,
+                    i,
+                    intlv_bits,
+                    intlv_size,
+                    opt_xor_low_bit,
+                    options,
                 )
 
                 # Set the number of ranks based on the command-line
@@ -240,7 +258,11 @@ def config_mem(options, system):
                     )
 
                 # Create the controller that will drive the interface
-                mem_ctrl = dram_intf.controller()
+                if issubclass(intf, m5.objects.Ramulator2):
+                    print("Ramulator2 mem_ctrl is connected \n")
+                    mem_ctrl = dram_intf
+                else:
+                    mem_ctrl = dram_intf.controller()
 
                 mem_ctrls.append(mem_ctrl)
 
