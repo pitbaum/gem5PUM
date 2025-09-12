@@ -63,6 +63,8 @@
         "typeinfo": "cpp",
         "valarray": "cpp",
         "variant": "cpp",
-        "bitset": "cpp"
+        "bitset": "cpp",
+        "stdio.h": "c",
+        "stdint.h": "c"
     }
 }

@@ -260,7 +260,7 @@ class Request : public Extensible<Request>
             of FlagsType, so HAS_NO_ADDR's value is that << 1 */
         HAS_NO_ADDR                = 0x0001000000000000,
         /** The request is a PUM request */
-        PUM                        = 0x0010000000000000,
+        PUM                        = 0x0100000000000000,
     };
     static const FlagsType STORE_NO_DATA = CACHE_BLOCK_ZERO |
         CLEAN | INVALIDATE;
