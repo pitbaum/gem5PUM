@@ -1,0 +1,18 @@
+Change the ramulator code such that:
+ - The scheduler will use for both rowclone and maj scheduling when waiting to aggregate the PUM commands member addresses
+    - Only 2 commands need to arrive, match the requestor ID for that of the request (APA only needs to addresses)
+ - Change the behavior for the scheduling that will add intra and inter bg parallelism. (If we dont use the output we dont need to add delay)
+ - Change that we dont need to waste an additional clock cycle for the final commands called MAJ, FRAC, RC. (while only 1 cycle, it may scew parallelism)
+ - PUM Reads should not be optimized out when going to the same addr
+
+Change the GEM5 code such that:
+ - Add the change that we use the actual requestor ID and not just 0 for package forwarding
+ - We can add more than 1 channel for the ramulator DRAM
+ - Check on how to skip Caches to use them with PUM
+ - Make if necessary the changes to the host memory calculations for PUM
+
+Test setups to implement and configure:
+
+
+
+https://docs.google.com/presentation/d/15mhJmwDOob50r-KNb8aOr62tleK0EMGXeSs4nWWPjDE/edit?slide=id.g37dc5aa1072_0_0#slide=id.g37dc5aa1072_0_0

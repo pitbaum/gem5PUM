@@ -3,6 +3,45 @@
 #include <stdlib.h>
 
 int main() {
+    uint64_t target = 100;
+    asm volatile(
+        "mov %0, %%rax\n\t" // opcode 10101, mod 00	memory, reg	101, rm 000 [rax]
+        ".byte 0x15, 0x28\n\t"
+        :: "r"(target)
+        : "rax", "eax","memory"
+    );
+
+    // Reset rax to zero (or any safe value)
+    asm volatile("xor %%rax, %%rax" ::: "rax");
+
+        asm volatile(
+        "mov %0, %%rax\n\t" // opcode 10101, mod 00	memory, reg	101, rm 000 [rax]
+        ".byte 0x15, 0x28\n\t"
+        :: "r"(target)
+        : "rax", "eax","memory"
+    );
+
+    // Reset rax to zero (or any safe value)
+    asm volatile("xor %%rax, %%rax" ::: "rax");
+
+        asm volatile(
+        "mov %0, %%rax\n\t" // opcode 10101, mod 00	memory, reg	101, rm 000 [rax]
+        ".byte 0x15, 0x28\n\t"
+        :: "r"(target)
+        : "rax", "eax","memory"
+    );
+
+    // Reset rax to zero (or any safe value)
+    asm volatile("xor %%rax, %%rax" ::: "rax");
+
+
+
+    int a = 1;
+
+    int b = 2;
+    int c = a + b;
+
+    /*
     size_t num_ints = (size_t)4 * 1024 * 1024 * 1024 / sizeof(int);
     int *arr = calloc(num_ints, sizeof(int));
 
@@ -36,12 +75,12 @@ int main() {
 
 
     // Send PuM request to start address
-    uint64_t addr = (uint64_t)(uintptr_t)arr;
+    long addr = 0x7ffef7dcd010;
     asm volatile(
         "mov %0, %%rax\n\t" // opcode 10101, mod 00	memory, reg	101, rm 000 [rax]
-        ".byte 0x15, 0x28\n\t"
+        ".byte 0x14, 0x28\n\t"
         :: "r"(addr)
-        : "rax", "memory", "eax"
+        : "rax", "eax","memory"
     );
     // Reset rax to zero (or any safe value)
     asm volatile("xor %%rax, %%rax" ::: "rax");
@@ -81,5 +120,6 @@ int main() {
 
     // Return success status
     free(arr);
+    */
     return 0;
 }

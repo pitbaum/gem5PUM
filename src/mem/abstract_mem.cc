@@ -478,6 +478,8 @@ AbstractMemory::access(PacketPtr pkt)
         }
     } else if (pkt->isPUM()) {
         pkt->setPUM(host_addr);
+    } else if (pkt->isMAJ()) {
+        pkt->setPUM(host_addr);
     }
     else {
         panic("Unexpected packet %s", pkt->print());

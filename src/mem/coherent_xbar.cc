@@ -196,8 +196,9 @@ CoherentXBar::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id)
     // the request
     const bool is_destination = isDestination(pkt);
 
-    const bool snoop_caches = !system->bypassCaches() &&
-        pkt->cmd != MemCmd::WriteClean;
+    const bool snoop_caches = (!system->bypassCaches() &&
+        pkt->cmd != MemCmd::WriteClean) && !(pkt->isPUM() || pkt->isMAJ()); // Should use uncacheable instead
+
     if (snoop_caches) {
         assert(pkt->snoopDelay == 0);
 
@@ -363,7 +364,7 @@ CoherentXBar::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id)
         }
     }
 
-    if (sink_packet) //Seems like if we dont want to give a response this is where to trigger
+    if (sink_packet)
         // queue the packet for deletion
         pendingDelete.reset(pkt);
 
@@ -1101,7 +1102,7 @@ CoherentXBar::sinkPacket(const PacketPtr pkt) const
     //    flag) is providing writable and thus had a Modified block,
     //    and no further action is needed
     return (pointOfCoherency && pkt->cacheResponding()) ||
-        (pointOfCoherency && !(pkt->isRead() || pkt->isWrite() || pkt->isPUM()) &&
+        (pointOfCoherency && !(pkt->isRead() || pkt->isWrite() || pkt->isPUM() || pkt->isMAJ()) &&
          !pkt->needsResponse()) ||
         (pkt->isCleanEviction() && pkt->isBlockCached()) ||
         (pkt->cacheResponding() &&
@@ -1119,7 +1120,7 @@ CoherentXBar::forwardPacket(const PacketPtr pkt)
     if (pkt->isClean()) {
         return !isDestination(pkt);
     }
-    return pkt->isRead() || pkt->isWrite() || pkt->isPUM() || !pointOfCoherency;
+    return pkt->isRead() || pkt->isWrite() || pkt->isPUM() || pkt->isMAJ() || !pointOfCoherency;
 }
 
 

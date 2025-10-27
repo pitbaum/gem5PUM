@@ -5,6 +5,7 @@
         "tests"
     ],
     "files.associations": {
+        "README": "instructions",
         "*.inc": "cpp",
         "cctype": "cpp",
         "clocale": "cpp",
@@ -65,6 +66,12 @@
         "variant": "cpp",
         "bitset": "cpp",
         "stdio.h": "c",
-        "stdint.h": "c"
-    }
+        "stdint.h": "c",
+        "ranges": "cpp",
+        "any": "cpp",
+        "charconv": "cpp",
+        "chrono": "cpp",
+        "ratio": "cpp"
+    },
+    "cmake.sourceDirectory": "/home/pitbaum/lab/gem5-ramulator2/gem5/ext/ramulator2/ramulator2/ext/spdlog"
 }

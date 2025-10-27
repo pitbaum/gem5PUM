@@ -670,7 +670,8 @@ let {{
     defineMicroStoreOp('Clwb', 'Mem = 0;', has_data=False,
                        mem_flags="Request::CLEAN | Request::DST_POC")
 
-    defineMicroStoreOp('Pumopt', 'Mem = 0;', mem_flags="Request::PUM", has_data=False)
+    defineMicroStoreOp('Pumopt', 'Mem = 0;', mem_flags="Request::PUM | Request::UNCACHEABLE | Request::STRICT_ORDER", has_data=False)
+    defineMicroStoreOp('Majopt', 'Mem = 0;', mem_flags="Request::MAJ | Request::UNCACHEABLE | Request::STRICT_ORDER", has_data=False)
 
     def defineMicroStoreSplitOp(mnemonic, code,
                                 completeCode="", mem_flags="0"):

@@ -261,6 +261,7 @@ class Request : public Extensible<Request>
         HAS_NO_ADDR                = 0x0001000000000000,
         /** The request is a PUM request */
         PUM                        = 0x0100000000000000,
+        MAJ                        = 0x1000000000000000,
     };
     static const FlagsType STORE_NO_DATA = CACHE_BLOCK_ZERO |
         CLEAN | INVALIDATE;
@@ -1033,6 +1034,7 @@ class Request : public Extensible<Request>
     bool isPriv() const { return _flags.isSet(PRIVILEGED); }
     bool isLockedRMW() const { return _flags.isSet(LOCKED_RMW); }
     bool isPUM() const {return _flags.isSet(PUM);}
+    bool isMAJ() const {return _flags.isSet(MAJ);}
     bool isSwap() const { return _flags.isSet(MEM_SWAP | MEM_SWAP_COND); }
     bool isCondSwap() const { return _flags.isSet(MEM_SWAP_COND); }
     bool

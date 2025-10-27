@@ -1,7 +1,14 @@
-python3 `which scons` build/ALL/gem5.opt -j16
+python3 `which scons` build/X86/gem5.opt -j16
 
-./build/ALL/gem5.opt  src/learning_gem5/test/components.py
+./build/X86/gem5.opt  src/learning_gem5/test/components.py
 
+
+To use several ranks, just update the ramulator yaml that loads it and change the number of ranks, this will split up the range over ranks
+To add more channels, change the amount of channels in the setup in gem5 since it will add a new Ramulator2 controller obj (Keep ramulator yaml channel count at 1 always)
+    -- Make sure that we optimize with threads to access the different channels else, the speed may still be slow even with additional channels
+    -- Channels are interleaved with the addresses by 64B so ever 0x40 we switch channels through
+
+Make sure to keep the MMIO size consistent with the sum of (dimm size * ranks * channels)
 
 Base Flags:
     ACPI: ACPI debugging

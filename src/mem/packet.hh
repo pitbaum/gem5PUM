@@ -150,6 +150,8 @@ class MemCmd
         // Tlb shootdown
         TlbiExtSync,
         PUM,
+        MAJ,
+        PUMResp,
         NUM_MEM_CMDS
     };
 
@@ -179,6 +181,7 @@ class MemCmd
         IsFlush,        //!< Flush the address from caches
         FromCache,      //!< Request originated from a caching agent
         IsPUM,
+        IsMAJ,
         NUM_COMMAND_ATTRIBUTES
     };
 
@@ -253,6 +256,7 @@ class MemCmd
     bool isLLSC() const         { return testCmdAttrib(IsLlsc); }
     bool isLockedRMW() const    { return testCmdAttrib(IsLockedRMW); }
     bool isPUM() const          { return testCmdAttrib(IsPUM); }
+    bool isMAJ() const          { return testCmdAttrib(IsMAJ); }
     bool isSWPrefetch() const   { return testCmdAttrib(IsSWPrefetch); }
     bool isHWPrefetch() const   { return testCmdAttrib(IsHWPrefetch); }
     bool isPrefetch() const     { return testCmdAttrib(IsSWPrefetch) ||
@@ -266,7 +270,7 @@ class MemCmd
     {
         return (cmd == ReadReq || cmd == WriteReq ||
                 cmd == WriteLineReq || cmd == ReadExReq ||
-                cmd == ReadCleanReq || cmd == ReadSharedReq || cmd == PUM);
+                cmd == ReadCleanReq || cmd == ReadSharedReq || cmd == PUM || cmd == MAJ);
     }
 
     Command
@@ -623,6 +627,7 @@ class Packet : public Printable, public Extensible<Packet>
     bool isLLSC() const              { return cmd.isLLSC(); }
     bool isLockedRMW() const         { return cmd.isLockedRMW(); }
     bool isPUM() const               { return cmd.isPUM(); }
+    bool isMAJ() const               { return cmd.isMAJ();}
     bool isError() const             { return cmd.isError(); }
     bool isPrint() const             { return cmd.isPrint(); }
     bool isFlush() const             { return cmd.isFlush(); }
@@ -1031,8 +1036,11 @@ class Packet : public Printable, public Extensible<Packet>
         } else if (req->isLockedRMW()) {
             return MemCmd::LockedRMWWriteReq;
         } else if (req->isPUM()) {
-            std::cout << "PUM write request" << std::endl;
+            //std::cout << "PUM write request" << std::endl;
             return MemCmd::PUM;
+        } else if (req->isMAJ()) {
+            //std::cout << "MAJ request" << std::endl;
+            return MemCmd::MAJ;
         } else {
             return MemCmd::WriteReq;
         }
@@ -1392,10 +1400,10 @@ class Packet : public Printable, public Extensible<Packet>
     void
     subarrayDestPUM(uint8_t* src_host_addr) const
     {
-        int col_size = 1024;
-        int row_size = 512;
+        const int col_size = 1024;
+        const int row_size = 512;
         // Find the subarray start you are in with the addr
-        int subarray_size = row_size * col_size; // 512 rows x 1024 cols times the data size 1 byte
+        const int subarray_size = row_size * col_size; // 512 rows x 1024 cols times the data size 1 byte
         //uint64_t subarray_size = 1024x1024; // Assuming 1024x1024 rowsxcols
         //uint64_t subarray_size = 512x512;// Assuming 512x512 rowsxcols
 
@@ -1438,10 +1446,36 @@ class Packet : public Printable, public Extensible<Packet>
     }
 
     /*
-    * Executes and handles a PUM request
+    * Executes and handles a PUM request currently just doesnt do anything we mock computational resutls
+    * Technically a request for rowclone and for maj need 2 requests so a real implementation would need a global buffer
+    * Such that we can store APA first addr and 2nd addr before we can actually compute the result in real memory
     */
-    void setPUM(uint8_t* hostaddr) const {
+    void setPUM(uint8_t* host_addr) const {
+
+
+        /*
+        const int col_size = 1024;
+        const int row_size = 512;
+
+        * Assuming 0000000000000...0 row  at 0
+        * Assuming 1111111111111...1 row at  1
+        * Assuming Comparison row at row 2 (Input 1)
+        * Assuming MAJ row at row 3,4,5 (At least)
+        * Assuming all other rows in the subarray contain data
+
+        // Find the subarray start you are in with the addr
+        const int subarray_size = row_size * col_size; // 512 rows x 1024 cols times the data size 1 byte
+        //uint64_t subarray_size = 1024x1024; // Assuming 1024x1024 rowsxcols
+        //uint64_t subarray_size = 512x512;// Assuming 512x512 rowsxcols
+
+        // Divide by the size of a subarray to see what subarray it is and get from it the base address pointer is
+        uint8_t* subarray_start_addr = reinterpret_cast<uint8_t*>((((reinterpret_cast<uintptr_t>(host_addr)/subarray_size))*subarray_size));
+        // Indentify from the src host address the start of the row the src host addr is in
+        // The start of the row should be divisible by col_size, thus by flooring to the colsize we can find it
+        uint8_t* host_src_row_start_addr = reinterpret_cast<uint8_t*>(((reinterpret_cast<uintptr_t>(host_addr)/col_size)*col_size));
+
         subarrayDestPUM(hostaddr);
+        */
     }
 
     /**

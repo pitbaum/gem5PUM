@@ -102,6 +102,17 @@ def macroop PUM_P
     pumopt seg, riprel, disp, dataSize=1
 };
 
+def macroop MAJ_M
+{
+    majopt seg, sib, disp, dataSize=1
+};
+
+def macroop MAJ_P
+{
+    rdip t7
+    majopt seg, riprel, disp, dataSize=1
+};
+
 
 """
 

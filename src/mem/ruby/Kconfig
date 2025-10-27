@@ -47,7 +47,6 @@ menu "Ruby"
                 Note: This is case sensitive.
 
         rsource "protocol/Kconfig"
-        rsource "../../learning_gem5/part3/Kconfig"
 
         endmenu
 

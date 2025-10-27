@@ -164,7 +164,7 @@ Ramulator2::recvTimingReq(PacketPtr pkt)
     panic_if(pkt->cacheResponding(), "Should not see packets where cache "
              "is responding");
 
-    panic_if(!(pkt->isRead() || pkt->isWrite() || pkt->isPUM()),
+    panic_if(!(pkt->isRead() || pkt->isWrite() || pkt->isPUM() || pkt->isMAJ()),
              "Should only see read and writes at memory controller, also PUM "
              "saw %s to %#llx\n", pkt->cmdString(), pkt->getAddr());
 
@@ -238,10 +238,14 @@ Ramulator2::recvTimingReq(PacketPtr pkt)
         {
             retryReq = true;
         }
-    } else if (pkt->isPUM()) {
-        // Generate ramulator Rowclone request and try to send to ramulator's memory system
+    } else if (pkt->isPUM() || pkt->isMAJ()) {
+        // We need to differantiate the rc and maj commands and change the requests cmd
+        int pum_cmd_id = 5;
+        if (pkt->isMAJ())
+            pum_cmd_id = 6;
+        // Generate ramulator PUM request and try to send to ramulator's memory system
         enqueue_success = ramulator2_frontend->
-            receive_external_requests(5, pkt->getAddr(), 0,
+            receive_external_requests(pum_cmd_id, pkt->getAddr(), pkt->req->requestorId(),
             [this](Ramulator::Request& req) {
                 DPRINTF(Ramulator2, "Pum to %ld completed.\n", req.addr);
                 auto& pkt_q = outstandingPUMs.find(req.addr)->second;
@@ -320,8 +324,12 @@ Ramulator2::accessAndRespond(PacketPtr pkt)
         if (!retryResp && !sendResponseEvent.scheduled())
             schedule(sendResponseEvent, time);
     } else {
-        // queue the packet for deletion
-        pendingDelete.reset(pkt);
+        if (pkt->isPUM() || pkt->isMAJ()) {
+            delete pkt;
+        }
+        else {// queue the packet for deletion
+            pendingDelete.reset(pkt);
+        }
     }
 }
 
