@@ -1,4 +1,6 @@
 // flat_mmio_no_interleave.c — flat (non-interleaved) MMIO addressing
+// Using no additional time for base row copies, using the partial knowledge and compress only data not base
+// Obviously not for trivial case
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -92,81 +94,42 @@ static inline void majority(uintptr_t target_addr){
 
 
 // Look up table identifiers
-// CompB1, CompD1, Comp0 (AND)
-const uint8_t B1D1C0 = 0;
-// MAJ3 CompB2, CompD2, Comp1 (OR)
-const uint8_t B2D2C1 = 1;
 // MAJ3 ANDOut, CompB1, Comp0
-const uint8_t ANDOutB1C0 = 2;
+const uint8_t ANDOutB1C0 = 0;
 // MAJ3 OROut, CompB1, Comp1
-const uint8_t OROutB1C1 = 3;
+const uint8_t OROutB1C1 = 1;
 
 // Function that checks similarity using custom PuM row operations
-// Workflow to get the results that the CPU can evaluate (Given data is stored vertically) and the init base timing is added from prior experiments:
-void pum_similarity_check(uintptr_t subarray_addr, const lut_t *L, uint64_t subarray_identifier) {
+// Workflow to get the results that the CPU can evaluate given the CPU knows the base data, it can AND all indexes that should be 1 and OR all indexes that should be 0
+void pum_similarity_check(uint64_t subarray_addr, const lut_t *L, uint64_t subarray_identifier) {
+    // For the worst case experiment, we will do 50/50 split of 0s and 1s in the base data
     // Keep the operation up until the end of the data entry size
-    uintptr_t target_addr = subarray_addr;
     for (int i=0; i < data_size; i++){
-        // Add the target address depending on what bit of the data we are copying
-        target_addr = data_size * subarray_col;
-        // Copy B1 into CompB
-        rowclone(target_addr);
-        rowclone(target_addr);
-
-        // Copy B1 into CompB2
-        rowclone(target_addr);
-        rowclone(target_addr);
-
-        // Copy D1 into CompD1
-        rowclone(target_addr);
-        rowclone(target_addr);
-
-        // Copy D1 into CompD2
-        rowclone(target_addr);
-        rowclone(target_addr);
-
-        // Copy 1 into Comp1
-        rowclone(target_addr);
-        rowclone(target_addr);
-
-        // Copy 0 into Comp0
-        rowclone(target_addr);
-        rowclone(target_addr);
+        // Copy 0 or 1 into the computational row
+        rowclone(subarray_addr);
+        rowclone(subarray_addr);
+        
+        // Copy Di into the computational row
+        rowclone(subarray_addr);
+        rowclone(subarray_addr);
 
         // MAJ3 CompB1, CompD1, Comp0 (AND)
         // look up time for the MMU addr translation to APA
-        addrpair_t APA = lut_lookup(L, subarray_identifier, B1D1C0);
-        majority(APA.a);
-        majority(APA.b);
-
-        // MAJ3 CompB2, CompD2, Comp1 (OR)
-        // look up time for the MMU addr translation to APA
-        APA = lut_lookup(L, subarray_identifier, B2D2C1);
-        majority(APA.a);
-        majority(APA.b);
-
-        // After the first iteration additional steps of comparing it to the Out rows
-        if(i == 0)
-        {
-            // RC 0 into Comp0
-            rowclone(target_addr);
-            rowclone(target_addr);
-
-            // MAJ3 ANDOut, CompB1, Comp0
-            // look up time for the MMU addr translation to APA
-            APA = lut_lookup(L, subarray_identifier, ANDOutB1C0);
-            majority(APA.a);
-            majority(APA.b);
-
-            // RC 1 into Comp1
-            rowclone(target_addr);
-            rowclone(target_addr);
-
-            // MAJ3 OROut, CompB1, Comp1
-            // look up time for the MMU addr translation to APA
+        addrpair_t APA;
+        if (i<data_size/2)
+            APA = lut_lookup(L, subarray_identifier, ANDOutB1C0);    
+        else
             APA = lut_lookup(L, subarray_identifier, OROutB1C1);
-            majority(APA.a);
-            majority(APA.b);
+        
+        majority(APA.a);
+        majority(APA.b);
+
+        // First iteration for 1s and 0s only copy into the respective Outs
+        if(i == 0 || i==data_size/2)
+        {
+            // RC 1st index expected to be 0 or 1 into ANDout or ORout
+            rowclone(subarray_addr);
+            rowclone(subarray_addr);
         }
     }
 }
@@ -175,7 +138,21 @@ static inline uint64_t ceil_div_u64(uint64_t a, uint64_t b) {
     return a / b + ((a % b) != 0);
 }
 
-int parallel_access(const lut_t *L)
+static inline bool a1_b0_any(volatile const uint8_t *base) {
+    const volatile uint64_t *a = (const volatile uint64_t *)(base);
+    const volatile uint64_t *b = (const volatile uint64_t *)(base + ROW_BYTES);
+
+    // ROW_BYTES == 64 -> 8 x 8B
+#pragma GCC unroll 8
+    for (int i = 0; i < (int)(ROW_BYTES / 8); ++i) {
+        uint64_t av = a[i];
+        uint64_t bv = b[i];
+        (av & ~bv);
+    }
+    return false;
+}
+
+uint64_t parallel_access(const lut_t *L)
 {
     // Per-channel contiguous slice (flat)
     const uint64_t per_ch_size      = MMIO_SIZE / CHANNELS;                 // 16 GiB / 2 = 8 GiB
@@ -187,7 +164,7 @@ int parallel_access(const lut_t *L)
         base_ch[ch] = MMIO_BASE + (uint64_t)ch * per_ch_size;
 
     // Bank slice within a channel
-    const uint64_t bank_region_bytes = per_ch_size / banks_per_ch;          // 0.5 GiB
+    const uint64_t bank_region_bytes = per_ch_size / banks_per_ch;
     uint64_t bank_off[RANKS_PER_CH * BANKS_PER_RANK];
     for (unsigned rk = 0; rk < RANKS_PER_CH; ++rk)
         for (unsigned bk = 0; bk < BANKS_PER_RANK; ++bk)
@@ -231,25 +208,29 @@ int parallel_access(const lut_t *L)
 
                     if (at_sub_boundary)
                         subarray_identifier[key_idx] = addr;
-
-                    // print every step (no throttling)
-                    /*    printf("step%-6" PRIu64 " ch%u rk%u bk%u -> 0x%016" PRIx64
+                    
+                    // print every step
+                    /*    
+                    printf("step%-6" PRIu64 " ch%u rk%u bk%u -> 0x%016" PRIx64
                            " , ident 0x%016" PRIx64 "\n",
                            step, ch, rk, bk, addr, subarray_identifier[key_idx]);
                     */
+
                     // Issue PUM computations
                     pum_similarity_check(addr, L, subarray_identifier[key_idx]);
 
                     // read out and evaluate
-
+                    a1_b0_any((volatile const uint8_t*)(uintptr_t)addr);
+                    // technically we should return if this is true the address we currently prcessed
+                    // Since the PUM host address space is stubbed and we do a full range computation we dont care
+                    // Dont expect an early hit
                 }
             }
         }
     }
 
     // summary:
-    printf("Done. steps=%" PRIu64 ", stride=0x%" PRIx64 " (%" PRIu64 " B), alloc=%" PRIu64 " GiB\n",
-           steps, stride_bytes, stride_bytes, (uint64_t)amount_of_GiB_allocated);
+    //printf("Done. steps=%" PRIu64 ", stride=0x%" PRIx64 " (%" PRIu64 " B), alloc=%" PRIu64 " GiB\n", steps, stride_bytes, stride_bytes, (uint64_t)amount_of_GiB_allocated);
     return 0;
 }
 
@@ -258,14 +239,7 @@ int main(void)
 {
     // LUT over subarray bases
     lut_t L;
-    lut_init(&L,
-             MMIO_BASE,
-             AMOUNT_OF_SUBARRAYS,
-             SUBARRAY_BYTES,
-             4);
-
-    //lut_print_keys(&L);
-    //lut_print_stats(&L);
+    lut_init(&L,MMIO_BASE,AMOUNT_OF_SUBARRAYS,SUBARRAY_BYTES,2);
 
     parallel_access(&L);
 
