@@ -38,3 +38,5 @@ typings
 .DS_Store
 a.out
 .txt
+/results
+ramulator2

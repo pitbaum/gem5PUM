@@ -1,6 +1,6 @@
 // flat_mmio_no_interleave.c — flat (non-interleaved) MMIO addressing
-// Using no additional time for base row copies, using the partial knowledge and compress only data not base
-// Obviously not for trivial case
+// Using per subarray the full amount of additional writing time for base data
+// space and time complexity
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -10,14 +10,14 @@
 typedef enum { false, true } bool;
 
 #define MMIO_BASE       0x200000000ULL       // 8 GiB boundary
-#define MMIO_SIZE       (16ULL << 30)        // 16 GiB window
+#define MMIO_SIZE       (64ULL << 30)        // 16 GiB window
 
 #define CHANNELS        2
-#define RANKS_PER_CH    1
+#define RANKS_PER_CH    2
 #define BANKS_PER_RANK  16
 
 // User parameters
-const int      amount_of_GiB_allocated = 4;  // how much of MMIO you plan to use
+const int      amount_of_GiB_allocated = 64;  // how much of MMIO you plan to use
 const size_t   data_size   = sizeof(int);    // element size (bytes)
 const uint64_t subarray_row = 1024;          // rows per subarray
 const uint64_t subarray_col = 512;           // bits per row
@@ -91,7 +91,6 @@ static inline void majority(uintptr_t target_addr){
     );
     asm volatile("xor %%rax, %%rax" ::: "rax");
 }
-
 
 // Look up table identifiers
 // MAJ3 ANDOut, CompB1, Comp0
@@ -239,7 +238,7 @@ int main(void)
 {
     // LUT over subarray bases
     lut_t L;
-    lut_init(&L,MMIO_BASE,AMOUNT_OF_SUBARRAYS,SUBARRAY_BYTES,2);
+    lut_init(&L,MMIO_BASE,AMOUNT_OF_SUBARRAYS,SUBARRAY_BYTES,4);
 
     parallel_access(&L);
 
