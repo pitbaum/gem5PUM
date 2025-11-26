@@ -602,6 +602,12 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
 
         req->setPaddr(paddr);
 
+        // Manually add the uncacheable region, since no feature for it is yet in the RISCV implementation
+        // We dont necessarily need to use the strict order flag with it as in the X86 implementation
+        if (paddr >= 0x200000000ULL)
+            req->setFlags(Request::UNCACHEABLE);
+
+
         return NoFault;
     }
 }

@@ -1197,7 +1197,7 @@ class BaseCache : public ClockedObject
     void allocateWriteBuffer(PacketPtr pkt, Tick time)
     {
         // should only see writes or clean evicts here
-        assert(pkt->isWrite() || pkt->cmd == MemCmd::CleanEvict);
+        assert(pkt->isWrite() || pkt->cmd == MemCmd::CleanEvict  || pkt->isPUM() || pkt->isMAJ());
 
         Addr blk_addr = pkt->getBlockAddr(blkSize);
 

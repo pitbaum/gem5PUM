@@ -336,7 +336,7 @@ Cache::handleTimingReqMiss(PacketPtr pkt, CacheBlk *blk, Tick forward_time,
 
         stats.cmdStats(pkt).mshrUncacheable[pkt->req->requestorId()]++;
 
-        if (pkt->isWrite()) {
+        if (pkt->isWrite() || pkt->isPUM() || pkt->isMAJ() ) {
             allocateWriteBuffer(pkt, forward_time);
         } else {
             // uncacheable accesses always allocate a new MSHR
