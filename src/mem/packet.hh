@@ -151,7 +151,6 @@ class MemCmd
         TlbiExtSync,
         PUM,
         MAJ,
-        PUMResp,
         NUM_MEM_CMDS
     };
 
