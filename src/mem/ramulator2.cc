@@ -175,8 +175,45 @@ Ramulator2::recvTimingReq(PacketPtr pkt)
         return false;
 
     bool enqueue_success = false;
-    if (pkt->isRead())
-    {
+    
+    // Since PUM and MAJ is a flag on top of write for the RISCV we will check that case first
+    if (pkt->isPUM() || pkt->isMAJ()) {
+        // We need to differantiate the rc and maj commands and change the requests cmd
+        int pum_cmd_id = 5;
+        if (pkt->isMAJ())
+            pum_cmd_id = 6;
+        // Generate ramulator PUM request and try to send to ramulator's memory system
+        enqueue_success = ramulator2_frontend->
+            receive_external_requests(pum_cmd_id, pkt->getAddr(), pkt->req->requestorId(),
+            [this](Ramulator::Request& req) {
+                DPRINTF(Ramulator2, "Pum to %ld completed.\n", req.addr);
+                auto& pkt_q = outstandingPUMs.find(req.addr)->second;
+                PacketPtr pkt = pkt_q.front();
+                pkt_q.pop_front();
+                if (!pkt_q.size())
+                    outstandingPUMs.erase(req.addr);
+
+                // added counter to track requests in flight
+                --nbrOutstandingPUMs;
+
+                accessAndRespond(pkt);
+            });
+
+        if (enqueue_success)
+        {
+            outstandingPUMs[pkt->getAddr()].push_back(pkt);
+
+            ++nbrOutstandingPUMs;
+
+            // perform the access for writes
+            accessAndRespond(pkt);
+        }
+        else
+        {
+            retryReq = true;
+        }
+
+    } else if (pkt->isRead()) {
         // Generate ramulator READ request and try to send to ramulator's memory system
         enqueue_success = ramulator2_frontend->
             receive_external_requests(0, pkt->getAddr(), 0,
@@ -238,42 +275,6 @@ Ramulator2::recvTimingReq(PacketPtr pkt)
         {
             retryReq = true;
         }
-    } else if (pkt->isPUM() || pkt->isMAJ()) {
-        // We need to differantiate the rc and maj commands and change the requests cmd
-        int pum_cmd_id = 5;
-        if (pkt->isMAJ())
-            pum_cmd_id = 6;
-        // Generate ramulator PUM request and try to send to ramulator's memory system
-        enqueue_success = ramulator2_frontend->
-            receive_external_requests(pum_cmd_id, pkt->getAddr(), pkt->req->requestorId(),
-            [this](Ramulator::Request& req) {
-                DPRINTF(Ramulator2, "Pum to %ld completed.\n", req.addr);
-                auto& pkt_q = outstandingPUMs.find(req.addr)->second;
-                PacketPtr pkt = pkt_q.front();
-                pkt_q.pop_front();
-                if (!pkt_q.size())
-                    outstandingPUMs.erase(req.addr);
-
-                // added counter to track requests in flight
-                --nbrOutstandingPUMs;
-
-                accessAndRespond(pkt);
-            });
-
-        if (enqueue_success)
-        {
-            outstandingPUMs[pkt->getAddr()].push_back(pkt);
-
-            ++nbrOutstandingPUMs;
-
-            // perform the access for writes
-            accessAndRespond(pkt);
-        }
-        else
-        {
-            retryReq = true;
-        }
-
     }
     else {
         // keep it simple and just respond if necessary
@@ -324,12 +325,8 @@ Ramulator2::accessAndRespond(PacketPtr pkt)
         if (!retryResp && !sendResponseEvent.scheduled())
             schedule(sendResponseEvent, time);
     } else {
-        if (pkt->isPUM() || pkt->isMAJ()) {
-            delete pkt;
-        }
-        else {// queue the packet for deletion
-            pendingDelete.reset(pkt);
-        }
+        // queue the packet for deletion
+        pendingDelete.reset(pkt);
     }
 }
 

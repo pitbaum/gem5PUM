@@ -462,6 +462,10 @@ AbstractMemory::access(PacketPtr pkt)
         // can be seen due to cache maintenance requests
 
         // no need to do anything
+    } else if (pkt->isPUM()) { // Check for PUM and MAJ before write since they are also writes at the same time
+        pkt->setPUM(host_addr);
+    } else if (pkt->isMAJ()) {
+        pkt->setPUM(host_addr);
     } else if (pkt->isWrite()) {
         if (writeOK(pkt)) {
             if (pmemAddr) {
@@ -476,10 +480,6 @@ AbstractMemory::access(PacketPtr pkt)
                 stats.bytesWritten[pkt->req->requestorId()] += pkt->getSize();
             }
         }
-    } else if (pkt->isPUM()) {
-        pkt->setPUM(host_addr);
-    } else if (pkt->isMAJ()) {
-        pkt->setPUM(host_addr);
     }
     else {
         panic("Unexpected packet %s", pkt->print());

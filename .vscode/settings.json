@@ -71,7 +71,12 @@
         "any": "cpp",
         "charconv": "cpp",
         "chrono": "cpp",
-        "ratio": "cpp"
+        "ratio": "cpp",
+        "mutex": "cpp",
+        "shared_mutex": "cpp",
+        "fstream": "cpp",
+        "ios": "cpp",
+        "locale": "cpp"
     },
     "cmake.sourceDirectory": "/home/pitbaum/lab/gem5-ramulator2/gem5/ext/ramulator2/ramulator2/ext/spdlog"
 }
