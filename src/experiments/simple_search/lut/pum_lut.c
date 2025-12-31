@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* ===================== Config ===================== */
 #define MMIO_BASE 0x200000000ULL  // 8 GiB boundary
@@ -57,16 +58,15 @@ const int CopyConstant0 = 2;
 const int CopyConstant1 = 3;
 
 // Subarrays ANDOut Address -> return Address of this subarrays ANDout row
-const int ANDOutAddr = 5;
+const int ANDOutAddr = 4;
 
 // Subarrays OROut Address -> return Address of this subarrays ORout row
-const int OROutAddr = 3;
+const int OROutAddr = 5;
+
+const int DATARCAddr = 6;
 
 /* ---------------------------- LUT ------------------------------------- */
-/* We have 4 operations per subarray (op_id 0..3).
- * We will return the whole subarray record so the caller can pick e[op_id].
- */
-enum { LUT_OPS = 4 };
+enum { LUT_OPS = 2 };
 
 /* One operation returns two uint64 values */
 typedef struct {
@@ -74,52 +74,87 @@ typedef struct {
   uint64_t b; /* second returned uint64 */
 } pair_t;
 
-/* One LUT record per subarray: 4 operations */
+/* One LUT record per subarray: 2 operations */
 typedef struct {
-  pair_t e[LUT_OPS]; /* e[0..3] */
+  pair_t e[LUT_OPS]; /* e[0..1] */
 } sub_lut_t;
 
-/* LUT[sub] is the record for subarray "sub" */
-static sub_lut_t *LUT = NULL;
-static uint64_t LUT_SUBS = 0;
+typedef struct {
+  uint64_t e[LUT_OPS]; /* e[0..1] */
+} sub_lut_single;
+
+
+/* LUT for the specific addresses for the Row specific commands */
+static sub_lut_t *LUT_MAJ; // LUT to look up MAJ OR & MAJ AND APA
+static sub_lut_t *LUT_CONST; // LUT to trigger CONST 1 & CONST 0 RC
+static sub_lut_single *LUT_ANDOR; // LUT to look up the AND & OR stored address for RC
+static uint64_t  *LUT_DATARC; // LUT to look up the singular DATA RC row address
 
 /* - Force 64KiB granularity: (addr>>16)<<16
  * - Convert to subarray id: (addr64k - MMIO_BASE) / subarray_stride_bytes
  */
 static inline uint64_t sub_index(uint64_t addr) {
-  uint64_t addr64k = (addr >> 16) << 16;
-  return (addr64k - MMIO_BASE) / (uint64_t)subarray_stride_bytes;
+  uint64_t addr64k = (addr >> 16) << 16; //Base address without the subarray (i.e. subarrayxcol /8 bits rounded down)
+  return (addr64k - MMIO_BASE) / (uint64_t)subarray_stride_bytes; // Make to multiple of subarray stride bytes
 }
 
-/* Populate one cell: (sub, op_id) -> (a,b) */
-static inline void lut_set_sub(uint64_t sub, uint8_t op_id, uint64_t a, uint64_t b) {
-  /* Keep fast; caller ensures bounds. */
-  LUT[sub].e[op_id] = (pair_t){.a = a, .b = b};
+/* Populate one cell: (sub, [0|1]) -> (a,b) */
+static inline void lut_set_sub(uint64_t sub_id, uint64_t a, uint64_t b) {
+  /* Set the sub entries for all the arrays per this index */
+  LUT_MAJ[sub_id].e[0] = (pair_t){.a = a, .b = b};
+  LUT_MAJ[sub_id].e[1] = (pair_t){.a = a, .b = b};
+  LUT_CONST[sub_id].e[0] = (pair_t){.a = a, .b = b};
+  LUT_CONST[sub_id].e[1] = (pair_t){.a = a, .b = b};
+  LUT_ANDOR[sub_id].e[0] = a;
+  LUT_ANDOR[sub_id].e[1] = b;
+  LUT_DATARC[sub_id] = a;
 }
 
 /* Lookup by address: returns pointer to the whole subarray record.
  * Caller then uses:
  *   sub_lut_t *r = lut_get(addr);
  *   pair_t p = r->e[op_id];
+ *   p.a or p.b;
  */
-static inline sub_lut_t *lut_get(uint64_t addr) {
-  if (!LUT) return NULL;
+static inline sub_lut_t *lut_MAJ_get(uint64_t addr) {
   uint64_t sub = sub_index(addr);
-  if (sub >= LUT_SUBS) return NULL;
-  return &LUT[sub];
+  return &LUT_MAJ[sub];
+}
+
+static inline sub_lut_t *lut_CONST_get(uint64_t addr) {
+  uint64_t sub = sub_index(addr);
+  return &LUT_CONST[sub];
+}
+
+static inline sub_lut_single *lut_ANDOR_get(uint64_t addr) {
+  uint64_t sub = sub_index(addr);
+  return &LUT_ANDOR[sub];
+}
+
+static inline uint64_t lut_DATARC_get(uint64_t addr) {
+  uint64_t sub = sub_index(addr);
+  return LUT_DATARC[sub];
 }
 
 // Populate all with subarray base address
 static void lut_populate_all(void) {
-  for (uint64_t sub = 0; sub < LUT_SUBS; sub++) {
-    uint64_t sub_base = MMIO_BASE + sub * (uint64_t)subarray_stride_bytes;
+  if (!LUT_MAJ)   LUT_MAJ   = (sub_lut_t *)malloc(subarrays_total * sizeof(*LUT_MAJ));
+  if (!LUT_CONST) LUT_CONST = (sub_lut_t *)malloc(subarrays_total * sizeof(*LUT_CONST));
+  if (!LUT_ANDOR) LUT_ANDOR = (sub_lut_single *)malloc(subarrays_total * sizeof(*LUT_ANDOR));
+  if (!LUT_DATARC)LUT_DATARC= (uint64_t *)malloc(subarrays_total * sizeof(*LUT_DATARC));
+
+  if (!LUT_MAJ || !LUT_CONST || !LUT_ANDOR || !LUT_DATARC) {
+    fprintf(stderr, "LUT alloc failed\n");
+    abort();
+  }
+
+  for (uint64_t sub = 0; sub < subarrays_total; sub++) {
+    uint64_t sub_base = MMIO_BASE + (sub * (uint64_t)subarray_stride_bytes);
     (void)sub_base;
 
-    for (uint8_t op = 0; op < LUT_OPS; op++) {
-      uint64_t a = sub; /* placeholder */
-      uint64_t b = sub; /* placeholder */
-      lut_set_sub(sub, op, a, b);
-    }
+    uint64_t a = sub_base; /* placeholder */
+    uint64_t b = sub_base; /* placeholder */
+    lut_set_sub(sub, a, b);
   }
 }
 
@@ -145,7 +180,7 @@ void compress_and_compare() {
   uint64_t current_addr = MMIO_BASE;
 
   // For each piece of data that needs to be processed in a bank
-  for (int step = 0; step < steps_per_bank; step++) {
+  for (uint64_t step = 0; step < steps_per_bank; step++) {
 
     // For each command we need to issue to that data piece
     for (int i = 0; i < to_compress_size_bits; i++) {
@@ -156,9 +191,9 @@ void compress_and_compare() {
       if (i == 0 || i == to_compress_size_bits / 2) {
         // First iteration and middle iteration, just copy the value into the Out Rows
         addr = current_addr;
-
+        
         for (int bank = 0; bank < banks_used_compress; bank++) {
-          rowclone(addr, ANDOutAddr);
+          rowclone(addr, lut_ANDOR_get(addr)->e[i>to_compress_size_bits / 2]);
           addr += Bank_stride;
         }
 
@@ -171,8 +206,8 @@ void compress_and_compare() {
           // ROWCLONE Const into Comp row on all banks
           for (int bank = 0; bank < banks_used_compress; bank++) {
             // Get the copy constant
-            sub_lut_t *r = lut_get(addr);
-            rowclone(r->e[CopyConstant0].a, r->e[CopyConstant0].b);
+            sub_lut_t *r = lut_CONST_get(addr);
+            rowclone(r->e[i>to_compress_size_bits / 2].a, r->e[i>to_compress_size_bits / 2].b);
             addr += Bank_stride;  // go to next bank
           }
         }
@@ -181,7 +216,7 @@ void compress_and_compare() {
 
         // ROWCLONE data into Comp row on all banks
         for (int bank = 0; bank < banks_used_compress; bank++) {
-          rowclone(addr, CompAddr);
+          rowclone(addr, lut_DATARC_get(addr));
           addr += Bank_stride;  // go to next bank
         }
 
@@ -190,8 +225,8 @@ void compress_and_compare() {
         // Compute MAJORITY on all banks
         for (int bank = 0; bank < banks_used_compress; bank++) {
           // Get the MAJ Execution for this subarray
-          sub_lut_t *r = lut_get(addr);
-          majority(r->e[ANDOutB1Comp].a, r->e[ANDOutB1Comp].b);
+          sub_lut_t *r = lut_MAJ_get(addr);
+          majority(r->e[i>to_compress_size_bits/2].a, r->e[i>to_compress_size_bits/2].b);
           addr += Bank_stride;  // go to next bank
         }
       }
@@ -204,7 +239,8 @@ void compress_and_compare() {
 
 int main(void) {
   // Create the LuT
+  lut_populate_all();
   // Go through all data
-  compress_and_compare();
+  //compress_and_compare();
   return 0;
 }
