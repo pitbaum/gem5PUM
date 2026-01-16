@@ -3,6 +3,7 @@ from m5.objects import (
     Cache,
     DerivO3CPU,
     L2XBar,
+    LocalBP,
     Process,
     Ramulator2,
     Root,
@@ -12,117 +13,71 @@ from m5.objects import (
     SystemXBar,
     VoltageDomain,
 )
-from m5.objects import TAGE_SC_L_64KB
 from m5.util.convert import toMemorySize
+from m5.objects import TAGE_SC_L_64KB
 
-
-# --------- Pumped-up caches ---------
+# --------- Classic caches ---------
 class L1ICache(Cache):
-    def __init__(self, size="128KiB", assoc=8):
+    def __init__(self, size="64KiB", assoc=8):
         super().__init__()
         self.size = size
         self.assoc = assoc
         self.tag_latency = 2
         self.data_latency = 2
         self.response_latency = 2
-        self.mshrs = 64
-        self.tgts_per_mshr = 16
+        self.mshrs = 16
+        self.tgts_per_mshr = 8
 
 
 class L1DCache(Cache):
-    def __init__(self, size="128KiB", assoc=8):
+    def __init__(self, size="64KiB", assoc=8):
         super().__init__()
         self.size = size
         self.assoc = assoc
         self.tag_latency = 2
         self.data_latency = 2
         self.response_latency = 2
-        self.mshrs = 128
-        self.tgts_per_mshr = 32
-        self.demand_mshr_reserve = 8
-        self.write_buffers = 256
+        self.mshrs = 16
+        self.tgts_per_mshr = 8
 
 
 class L2Cache(Cache):
-    def __init__(self, size="2MiB", assoc=32):
+    def __init__(self, size="512KiB", assoc=16):
         super().__init__()
         self.size = size
         self.assoc = assoc
-        self.tag_latency = 16
-        self.data_latency = 16
-        self.response_latency = 16
-        self.mshrs = 256
-        self.tgts_per_mshr = 32
-        self.demand_mshr_reserve = 16
-        self.write_buffers = 512
-
-
-class L3Cache(Cache):
-    def __init__(self, size="16MiB", assoc=32):
-        super().__init__()
-        self.size = size
-        self.assoc = assoc
-        self.tag_latency = 30
-        self.data_latency = 30
-        self.response_latency = 30
-        self.mshrs = 512
-        self.tgts_per_mshr = 32
-        self.demand_mshr_reserve = 32
-        self.write_buffers = 1024
+        self.tag_latency = 12
+        self.data_latency = 12
+        self.response_latency = 12
+        self.mshrs = 64
+        self.tgts_per_mshr = 16
 
 
 # --------- build system ---------
 system = System()
 system.mem_mode = "timing"
-system.clk_domain = SrcClockDomain(clock="4GHz", voltage_domain=VoltageDomain())
+system.clk_domain = SrcClockDomain(
+    clock="4GHz", voltage_domain=VoltageDomain()
+)
 
 # buses
 system.membus = SystemXBar(width=64)
-system.l2bus = L2XBar(width=64)
-system.l3bus = L2XBar(width=64)
+system.l2bus = L2XBar()
 
 # --------- 1 O3 CPU (RISC-V build of gem5) ---------
 system.cpu = DerivO3CPU()
 system.cpu.numThreads = 1
 system.cpu.branchPred = TAGE_SC_L_64KB()
 
-# === Pumped core structures ===
-system.cpu.numROBEntries = 384
-system.cpu.numIQEntries = 128
-system.cpu.LQEntries = 256
-system.cpu.SQEntries = 256
-
-# === Wider machine ===
-system.cpu.fetchWidth = 8
-system.cpu.decodeWidth = 8
-system.cpu.renameWidth = 8
-system.cpu.issueWidth = 8
-system.cpu.dispatchWidth = 8
-system.cpu.commitWidth = 8
-
-# === Extra headroom where available (guarded for version differences) ===
-_optional_cpu_params = {
-    "numPhysIntRegs": 512,
-    "numPhysFloatRegs": 512,
-    "numPhysVecRegs": 512,
-    "numPhysCCRegs": 256,
-    "fetchBufferSize": 64,
-    "fetchQueueSize": 64,
-}
-for k, v in _optional_cpu_params.items():
-    if hasattr(system.cpu, k):
-        setattr(system.cpu, k, v)
-
 # caches
 system.icache = L1ICache()
 system.dcache = L1DCache()
 system.l2cache = L2Cache()
-system.l3cache = L3Cache()
 
 # ---------- Address map ----------
 MAIN_SIZE = "8GiB"
 MMIO_BASE = 0x2_0000_0000  # 8 GiB boundary
-MMIO_SIZE = "64GiB"  # size of the MMIO window
+MMIO_SIZE = "64GiB"        # size of the MMIO window
 
 main_range = AddrRange(0, size=MAIN_SIZE)
 mmio_size_bytes = toMemorySize(MMIO_SIZE)
@@ -135,17 +90,14 @@ system.mem_ranges = [main_range, mmio_range]
 system.cpu.icache_port = system.icache.cpu_side
 system.cpu.dcache_port = system.dcache.cpu_side
 
-# ---------- L1s -> L2 ----------
+# ---------- L2 <-> membus ----------
 system.l2bus.cpu_side_ports = [
     system.icache.mem_side,
     system.dcache.mem_side,
 ]
-system.l2cache.cpu_side = system.l2bus.mem_side_ports
 
-# ---------- L2 -> L3 -> membus ----------
-system.l2cache.mem_side = system.l3bus.cpu_side_ports
-system.l3cache.cpu_side = system.l3bus.mem_side_ports
-system.l3cache.mem_side = system.membus.cpu_side_ports
+system.l2cache.cpu_side = system.l2bus.mem_side_ports
+system.l2cache.mem_side = system.membus.cpu_side_ports
 
 # ---------- Walkers (for MMU) ----------
 if hasattr(system.cpu, "itb") and hasattr(system.cpu.itb, "walk_port"):
@@ -153,7 +105,9 @@ if hasattr(system.cpu, "itb") and hasattr(system.cpu.itb, "walk_port"):
 if hasattr(system.cpu, "dtb") and hasattr(system.cpu.dtb, "walk_port"):
     system.cpu.dtb.walk_port = system.membus.cpu_side_ports
 
+# RISC-V SE doesn't need anything special
 system.cpu.createInterruptController()
+
 
 # system port
 system.system_port = system.membus.cpu_side_ports
@@ -168,6 +122,7 @@ system.ram_main.range = main_range
 system.ram_mmio = Ramulator2(
     config_path="ext/ramulator2/ramulator2/test_configs/4rk_4to2_pum.yaml"
 )
+
 system.ram_mmio.range = mmio_range
 system.ram_mmio.null = True  # We dont need actual data storage
 
@@ -178,7 +133,8 @@ system.membus.mem_side_ports = [
 ]
 
 # --------- SE workload (RISC-V binary) ---------
-binary = "src/experiments/simple_search/lut/pumlut"
+# riscv64-linux-gnu-gcc -O2 -Wall -march=rv64gc -static riscvtest.c -o basetest
+binary = "src/experiments/simple_search/new_lut/lut"
 system.workload = SEWorkload.init_compatible(binary)
 
 process = Process()

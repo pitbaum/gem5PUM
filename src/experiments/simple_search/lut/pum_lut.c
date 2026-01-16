@@ -241,6 +241,6 @@ int main(void) {
   // Create the LuT
   lut_populate_all();
   // Go through all data
-  //compress_and_compare();
+  compress_and_compare();
   return 0;
 }

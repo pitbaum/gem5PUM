@@ -6,37 +6,36 @@
 
 /* ===================== Config ===================== */
 #define MMIO_BASE 0x200000000ULL       // 8 GiB boundary
-#define MMIO_SIZE (64ULL << 30)        // 64 GiB PUM Address Space
+#define MMIO_SIZE (32ULL << 30)        // 64 GiB PUM Address Space
 
 #define CHANNELS 1
 #define RANKS_PER_CH 4
-#define BANKS_PER_RANK 16
+#define BANKS_PER_RANK 8
+
+/* ===================== Derived geometry ===================== */
+const int total_banks = BANKS_PER_RANK * RANKS_PER_CH;
 
 /* ===================== User parameters ===================== */
 const uint64_t amount_of_GiB_allocated = 32;  // how much MMIO to sweep
 const int data_size_bits = 512;               // element size (bits)
 const int to_compress_size_bits = 512;        // how many of the element bits to compress
 const int subarray_row = 512;                 // rows per subarray
-const int subarray_col = 1024;                // bits per row
-const int banks_used_compress = 64;
+const int subarray_col = 1024;                // columns per row
+const int width = 8;                         // bits per column
+const int banks_used_compress = total_banks;
 
-/* ===================== Derived geometry ===================== */
-const int total_banks = BANKS_PER_RANK * RANKS_PER_CH;
-
+// How many rows do we need to operate on to have gone through every single piece of data (round up)
 const uint64_t data_in_alloc =
-    (amount_of_GiB_allocated * (1ULL << 30)) / ((data_size_bits * subarray_col) / 8);
-// How many data instances did we allocate
+    (amount_of_GiB_allocated * (1ULL << 30)) / ((data_size_bits * subarray_col * width) / 8);
 
+// IF we split all of these rows necessary to activate onto all possible banks we have available 
 const uint64_t steps_per_bank =
     (data_in_alloc + total_banks - 1) / total_banks;
-// Fast ceiling division: steps we take per bank (all non-symmetric operations)
 
-const uint64_t Bank_stride = MMIO_SIZE / total_banks;  // How big is a single bank
+const uint64_t Bank_stride = MMIO_SIZE / total_banks;  // How big is a single bank, so we know how to jump between banks for addresses
 
+// how many bytes to shift the address to get the next subarray base address (no width necessary since width is not exposed on the columns)
 const int subarray_stride_bytes = (subarray_col * subarray_row) / 8;
-// how many bytes to shift the address to get the subarray base address
-
-const int step_stride_bytes = (data_size_bits * subarray_col) / 8;
 
 #define WORDS_PER_SUBARRAY ((subarray_col + 63) / 64)
 
@@ -135,7 +134,7 @@ void compress_and_compare(void) {
     }
 
     // advance the base address
-    current_addr += step_stride_bytes;
+    current_addr += subarray_stride_bytes;
   }
 }
 
